@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import './Fallout.css';
 
 // Establece la conexión WebSocket con el servidor
-const socket = new WebSocket("ws://localhost:3001");
+const socket = new WebSocket("wss://tictactoe-lv05.onrender.com");
 
 function App() {
   // Estados principales del juego
