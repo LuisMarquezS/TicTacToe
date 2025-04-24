@@ -176,7 +176,7 @@ function App() {
           top: 75,
           left: 75,
           width: "85%",
-          height: "70%",
+          height: "60%",
           backgroundColor: "#000",
           color: "#39ff14",
           display: "flex",
@@ -184,6 +184,7 @@ function App() {
           justifyContent: "center",
           fontFamily: "'Share Tech Mono', monospace",
           fontSize: "1.5rem",
+          
           zIndex: 9999,
           borderRadius: "50px",
           
@@ -249,35 +250,46 @@ function App() {
             {fase === "espera" && <p>Esperando a otro jugador para empezar...</p>}
 
             {fase === "juego" && (
-              <>
-                <h3>Eres: {tuNombre} ({jugador})</h3>
-                <h4>Rival: {rival} ({jugador === "X" ? "O" : "X"})</h4>
-                <h4>Turno de: {turno === jugador ? `${tuNombre} (${jugador})` : `${rival} (${jugador === "X" ? "O" : "X"})`}</h4>
+<div className="contenedor-juego">
+  
+  {/* Panel Izquierdo */}
+  <div className="panel-izquierdo">
+    <h3>Eres: {tuNombre} ({jugador})</h3>
+    <h4>Rival: {rival} ({jugador === "X" ? "O" : "X"})</h4>
+    <h4>Turno de: {turno === jugador ? `${tuNombre} (${jugador})` : `${rival} (${jugador === "X" ? "O" : "X"})`}</h4>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 100px)", gap: "5px", justifyContent: "center" }}>
-                  {tablero.map((casilla, i) => (
-                    <div key={i} onClick={() => handleClick(i)} style={{ border: "1px solid #39ff14", height: "100px", fontSize: "2rem", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-                      {casilla}
-                    </div>
-                  ))}
-                </div>
+    {ganador && (
+      <>
+        <h3 style={{ marginTop: "1rem" }}>
+          {ganador === "Empate" ? "¡Empate!" : ganador === jugador ? `¡Ganaste tú (${tuNombre})!` : `¡Ganó ${rival} (${ganador})!`}
+        </h3>
+        {!pendienteReinicio && <button onClick={solicitarReinicio}>Pedir Revancha</button>}
+      </>
+    )}
 
-                {ganador && (
-                  <>
-                    <h2>{ganador === "Empate" ? "¡Empate!" : ganador === jugador ? `¡Ganaste tú (${tuNombre})!` : `¡Ganó ${rival} (${ganador})!`}</h2>
-                    {!pendienteReinicio && <button onClick={solicitarReinicio}>Pedir Revancha</button>}
-                  </>
-                )}
+    {mensajeReinicio && (
+      <div style={{ marginTop: "1rem" }}>
+        <p>Tu oponente quiere una revancha.</p>
+        <button onClick={aceptarReinicio}>Aceptar</button>
+      </div>
+    )}
 
-                <button onClick={salirDeSala}>Salir de la Sala</button>
+    <button onClick={salirDeSala} style={{ marginTop: "1rem" }}>Salir de la Sala</button>
+  </div>
 
-                {mensajeReinicio && (
-                  <div style={{ marginTop: "1rem" }}>
-                    <p>Tu oponente quiere una revancha.</p>
-                    <button onClick={aceptarReinicio}>Aceptar</button>
-                  </div>
-                )}
-              </>
+  {/* Panel Tablero */}
+  <div className="panel-tablero">
+    <div className="tablero">
+      {tablero.map((casilla, i) => (
+        <div key={i} onClick={() => handleClick(i)} className="casilla">
+          {casilla}
+        </div>
+      ))}
+    </div>
+  </div>
+</div>
+
+            
             )}
           </>
         )}
