@@ -1,4 +1,4 @@
-// index.js FINAL con sincronización, limpieza correcta y Redis compartido
+// index.js FINAL sincronizado con broadcast manual como en versión sin hilos
 const cluster = require("cluster");
 const os = require("os");
 const WebSocket = require("ws");
@@ -24,9 +24,28 @@ if (cluster.isMaster) {
     const wss = new WebSocket.Server({ port: 3001 });
     console.log(`✅ Worker PID ${process.pid} escuchando en ws://localhost:3001`);
 
-    wss.on("connection", (ws) => {
-      console.log("🧩 Cliente conectado en PID", process.pid);
+    async function broadcast(type, payload) {
+      for (const client of wss.clients) {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({ type, ...payload }));
+        }
+      }
+    }
 
+    async function enviarListasGlobal() {
+      const jugadores = await redis.hKeys("jugadores");
+      const keys = await redis.keys("sala:*");
+      const salas = [];
+      for (const key of keys) {
+        const nombre = key.replace("sala:", "");
+        const jugadoresSala = await redis.lRange(key, 0, -1);
+        salas.push({ nombre, cantidad: jugadoresSala.length });
+      }
+      await broadcast("listaJugadores", { jugadores });
+      await broadcast("listaSalas", { salas });
+    }
+
+    wss.on("connection", (ws) => {
       ws.on("message", async (msg) => {
         const data = JSON.parse(msg);
 
@@ -149,24 +168,6 @@ if (cluster.isMaster) {
 
         await enviarListasGlobal();
       });
-    });
-
-    async function enviarListasGlobal() {
-      const jugadores = await redis.hKeys("jugadores");
-      const keys = await redis.keys("sala:*");
-      const salas = [];
-      for (const key of keys) {
-        const nombre = key.replace("sala:", "");
-        const jugadoresSala = await redis.lRange(key, 0, -1);
-        salas.push({ nombre, cantidad: jugadoresSala.length });
-      }
-      for (const cliente of wss.clients) {
-        if (cliente.readyState === WebSocket.OPEN) {
-          cliente.send(JSON.stringify({ type: "listaJugadores", jugadores }));
-          cliente.send(JSON.stringify({ type: "listaSalas", salas }));
-        }
-      }
-    }
 
     // limpieza automática cada 10 segundos
     setInterval(async () => {
@@ -185,4 +186,4 @@ if (cluster.isMaster) {
     console.error(`❌ [PID ${process.pid}] Error al conectar a Redis:`, err);
     process.exit(1);
   });
-}
+  
