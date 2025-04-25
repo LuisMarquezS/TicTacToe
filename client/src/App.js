@@ -1,34 +1,35 @@
-// Importa React y los hooks necesarios
-import { useEffect, useState } from "react";
+// App.js actualizado con socket estable y manejado por useRef
+import { useEffect, useRef, useState } from "react";
 import './Fallout.css';
 
-// Establece la conexión WebSocket con el servidor
-const socket = new WebSocket("wss://tictactoe-lv05.onrender.com");
-
 function App() {
-  // Estados principales del juego
-  const [fase, setFase] = useState("registro"); // controla la etapa del juego
-  const [nombreJugador, setNombreJugador] = useState(""); // nombre del jugador ya registrado
-  const [nombreInput, setNombreInput] = useState(""); // nombre en el campo input
-  const [jugadoresOnline, setJugadoresOnline] = useState([]); // lista de jugadores conectados
-  const [salasDisponibles, setSalasDisponibles] = useState([]); // salas que se pueden ver o entrar
+  const socketRef = useRef(null);
 
-  // Estados específicos de una partida activa
-  const [jugador, setJugador] = useState(""); // X u O
+  // Estados principales
+  const [fase, setFase] = useState("registro");
+  const [nombreJugador, setNombreJugador] = useState("");
+  const [nombreInput, setNombreInput] = useState("");
+  const [jugadoresOnline, setJugadoresOnline] = useState([]);
+  const [salasDisponibles, setSalasDisponibles] = useState([]);
+
+  // Estados de juego
+  const [jugador, setJugador] = useState("");
   const [tuNombre, setTuNombre] = useState("");
   const [rival, setRival] = useState("");
-  const [turno, setTurno] = useState("X"); // de quién es el turno
+  const [turno, setTurno] = useState("X");
   const [tablero, setTablero] = useState(Array(9).fill(""));
-  const [ganador, setGanador] = useState(null); // resultado
-  const [sala, setSala] = useState(""); // nombre de la sala
-  const [inputSala, setInputSala] = useState(""); // input para nombre de nueva sala
-  const [pendienteReinicio, setPendienteReinicio] = useState(false); // si el jugador pidió revancha
-  const [mensajeReinicio, setMensajeReinicio] = useState(false); // si el rival pidió revancha
-  const [apagado, setApagado] = useState(false); // para simular apagado de la terminal
+  const [ganador, setGanador] = useState(null);
+  const [sala, setSala] = useState("");
+  const [inputSala, setInputSala] = useState("");
+  const [pendienteReinicio, setPendienteReinicio] = useState(false);
+  const [mensajeReinicio, setMensajeReinicio] = useState(false);
+  const [apagado, setApagado] = useState(false);
 
-  // Escucha los mensajes del WebSocket del backend
+  // Crear socket al montar
   useEffect(() => {
-    socket.onmessage = (msg) => {
+    socketRef.current = new WebSocket("wss://tictactoe-lv05.onrender.com");
+
+    socketRef.current.onmessage = (msg) => {
       const data = JSON.parse(msg.data);
 
       if (data.type === "registroOK") {
@@ -77,7 +78,7 @@ function App() {
     };
   }, [tablero]);
 
-  // Lógica para validar si alguien ganó
+  // Verifica si alguien ganó
   const verificarGanador = (nuevoTablero) => {
     const lineas = [
       [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -92,55 +93,55 @@ function App() {
     return nuevoTablero.includes("") ? null : "Empate";
   };
 
-  // Al hacer clic en una casilla
+  // Click en casilla
   const handleClick = (i) => {
     if (tablero[i] === "" && turno === jugador && !ganador && !pendienteReinicio) {
       const nuevo = [...tablero];
       nuevo[i] = jugador;
       setTablero(nuevo);
       setTurno(jugador === "X" ? "O" : "X");
-      socket.send(JSON.stringify({ type: "jugada", casilla: i, jugador }));
+      socketRef.current.send(JSON.stringify({ type: "jugada", casilla: i, jugador }));
       const resultado = verificarGanador(nuevo);
       if (resultado) setGanador(resultado);
     }
   };
 
-  // Crear una sala nueva
+  // Crear sala
   const crearSala = () => {
     if (inputSala.trim() === "") return alert("Nombre de sala inválido");
-    socket.send(JSON.stringify({ type: "crearSala", nombre: inputSala.trim() }));
+    socketRef.current.send(JSON.stringify({ type: "crearSala", nombre: inputSala.trim() }));
     setSala(inputSala.trim());
   };
 
-  // Unirse a una sala ya existente
+  // Unirse a sala
   const unirseSala = (nombreSala) => {
-    socket.send(JSON.stringify({ type: "unirseSala", nombre: nombreSala }));
+    socketRef.current.send(JSON.stringify({ type: "unirseSala", nombre: nombreSala }));
     setSala(nombreSala);
   };
 
-  // Enviar solicitud de reinicio
+  // Solicitar reinicio
   const solicitarReinicio = () => {
     setPendienteReinicio(true);
-    socket.send(JSON.stringify({ type: "reiniciar" }));
+    socketRef.current.send(JSON.stringify({ type: "reiniciar" }));
   };
 
-  // Aceptar solicitud de reinicio del rival
+  // Aceptar reinicio
   const aceptarReinicio = () => {
     setMensajeReinicio(false);
     setPendienteReinicio(true);
-    socket.send(JSON.stringify({ type: "reiniciar" }));
+    socketRef.current.send(JSON.stringify({ type: "reiniciar" }));
   };
 
-  // Limpiar tablero y estado para reiniciar
+  // Reiniciar tablero
   const reiniciarJuego = () => {
     setTablero(Array(9).fill(""));
     setTurno("X");
     setGanador(null);
   };
 
-  // Salir de la sala manualmente
+  // Salir de sala manual
   const salirDeSala = () => {
-    socket.send(JSON.stringify({ type: "salirSala" }));
+    socketRef.current.send(JSON.stringify({ type: "salirSala" }));
     setFase("registro");
     setNombreJugador("");
     setNombreInput("");
@@ -153,7 +154,7 @@ function App() {
     setMensajeReinicio(false);
   };
 
-  // Volver al menú sin reiniciar nombre
+  // Volver a menú sin perder nombre
   const volverAlMenu = () => {
     setFase("menu");
     setTablero(Array(9).fill(""));
@@ -165,7 +166,7 @@ function App() {
     setMensajeReinicio(false);
   };
 
-  // Simular apagado del sistema desde el botón POWER
+  // Apagar interfaz (modo apagado)
   const apagarSistema = () => {
     setApagado(true);
     setTimeout(() => {
@@ -174,13 +175,22 @@ function App() {
     }, 3000);
   };
 
-  // Enviar nombre para registrarse
+  // Enviar registro solo cuando socket esté listo
   const enviarRegistro = () => {
     const nombre = nombreInput.trim();
     if (!nombre) return alert("Ingresa un nombre válido");
-    if (socket.readyState !== 1) return alert("Conexión no lista.");
-    socket.send(JSON.stringify({ type: "registro", nombre }));
+
+    if (socketRef.current.readyState === 0) {
+      socketRef.current.addEventListener("open", () => {
+        socketRef.current.send(JSON.stringify({ type: "registro", nombre }));
+      });
+    } else if (socketRef.current.readyState === 1) {
+      socketRef.current.send(JSON.stringify({ type: "registro", nombre }));
+    } else {
+      return alert("Conexión no disponible.");
+    }
   };
+
 
 // Estructura visual principal de la aplicación
 return (
