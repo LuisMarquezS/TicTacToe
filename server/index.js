@@ -1,4 +1,4 @@
-// index.js actualizado con fixes de sincronización y limpieza en Redis
+// index.js FINAL con sincronización, limpieza correcta y Redis compartido
 const cluster = require("cluster");
 const os = require("os");
 const WebSocket = require("ws");
@@ -17,7 +17,6 @@ if (cluster.isMaster) {
 
 } else {
   const redis = createClient({ url: process.env.REDIS_URL || "redis://localhost:6379" });
-
   redis.on("error", (err) => console.error("Redis error:", err));
 
   redis.connect().then(() => {
@@ -127,56 +126,31 @@ if (cluster.isMaster) {
             const target = [...wss.clients].find(c => c.usuario === rival);
             if (target) target.send(JSON.stringify({ type: "salaCerrada" }));
           }
-          await redis.del(`sala:${sala}`);
+          await redis.lRem(`sala:${sala}`, 0, ws.usuario);
           await redis.del(`reinicio:${sala}`);
+          ws.sala = null;
           await enviarListasGlobal();
         }
-
-        setInterval(async () => {
-          const keys = await redis.keys("sala:*");
-          for (const key of keys) {
-            const jugadores = await redis.lRange(key, 0, -1);
-            if (jugadores.length === 0) {
-              await redis.del(key);
-              await redis.del(`reinicio:${key.replace("sala:", "")}`);
-            }
-          }
-        }, 10000);
-      
-      
-        
       });
 
       ws.on("close", async () => {
         const nombre = ws.usuario;
         const sala = ws.sala;
-      
         if (nombre) await redis.hDel("jugadores", nombre);
-      
+
         if (sala) {
-          await redis.lRem(`sala:${sala}`, 0, nombre); // elimina al jugador de la sala
-      
+          await redis.lRem(`sala:${sala}`, 0, nombre);
           const jugadores = await redis.lRange(`sala:${sala}`, 0, -1);
           if (jugadores.length === 0) {
             await redis.del(`sala:${sala}`);
             await redis.del(`reinicio:${sala}`);
           }
         }
-      
+
         await enviarListasGlobal();
       });
-      
     });
 
-
-    setInterval(async () => {
-      const keys = await redis.keys("sala:*");
-      for (const key of keys) {
-        const jugadores = await redis.lRange(key, 0, -1);
-        if (jugadores.length === 0) await redis.del(key);
-      }
-    }, 10000); // cada 10 segundos
-    
     async function enviarListasGlobal() {
       const jugadores = await redis.hKeys("jugadores");
       const keys = await redis.keys("sala:*");
@@ -193,6 +167,19 @@ if (cluster.isMaster) {
         }
       }
     }
+
+    // limpieza automática cada 10 segundos
+    setInterval(async () => {
+      const keys = await redis.keys("sala:*");
+      for (const key of keys) {
+        const jugadores = await redis.lRange(key, 0, -1);
+        if (jugadores.length === 0) {
+          await redis.del(key);
+          const nombre = key.replace("sala:", "");
+          await redis.del(`reinicio:${nombre}`);
+        }
+      }
+    }, 10000);
 
   }).catch(err => {
     console.error(`❌ [PID ${process.pid}] Error al conectar a Redis:`, err);
