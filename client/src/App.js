@@ -30,6 +30,7 @@ function App() {
     socketRef.current = new WebSocket("wss://tictactoe-lv05.onrender.com");
 
     socketRef.current.onmessage = (msg) => {
+      console.log("📩 Mensaje recibido del servidor:", msg.data);
       const data = JSON.parse(msg.data);
 
       if (data.type === "registroOK") {
@@ -195,6 +196,7 @@ function App() {
       });
     } else if (socketRef.current.readyState === 1) {
       socketRef.current.send(JSON.stringify({ type: "registro", nombre }));
+      console.log("➡️ Enviando registro:", nombre);
     }
   };
 

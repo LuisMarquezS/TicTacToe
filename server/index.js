@@ -34,7 +34,7 @@ if (cluster.isMaster) {
         if (data.type === "registro") {
           const nombre = data.nombre;
           const yaExiste = await redis.hexists("jugadores", nombre);
-
+          console.log("📥 Recibido registro:", nombre);
           if (yaExiste) {
             ws.send(JSON.stringify({ type: "error", mensaje: "Nombre ya en uso" }));
             return;
