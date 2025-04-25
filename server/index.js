@@ -136,19 +136,33 @@ if (cluster.isMaster) {
       ws.on("close", async () => {
         const nombre = ws.usuario;
         const sala = ws.sala;
+      
         if (nombre) await redis.hDel("jugadores", nombre);
-
+      
         if (sala) {
+          await redis.lRem(`sala:${sala}`, 0, nombre); // elimina al jugador de la sala
+      
           const jugadores = await redis.lRange(`sala:${sala}`, 0, -1);
-          if (jugadores.length <= 1) {
+          if (jugadores.length === 0) {
             await redis.del(`sala:${sala}`);
             await redis.del(`reinicio:${sala}`);
           }
         }
+      
         await enviarListasGlobal();
       });
+      
     });
 
+
+    setInterval(async () => {
+      const keys = await redis.keys("sala:*");
+      for (const key of keys) {
+        const jugadores = await redis.lRange(key, 0, -1);
+        if (jugadores.length === 0) await redis.del(key);
+      }
+    }, 10000); // cada 10 segundos
+    
     async function enviarListasGlobal() {
       const jugadores = await redis.hKeys("jugadores");
       const keys = await redis.keys("sala:*");
