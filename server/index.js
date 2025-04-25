@@ -131,6 +131,20 @@ if (cluster.isMaster) {
           await redis.del(`reinicio:${sala}`);
           await enviarListasGlobal();
         }
+
+        setInterval(async () => {
+          const keys = await redis.keys("sala:*");
+          for (const key of keys) {
+            const jugadores = await redis.lRange(key, 0, -1);
+            if (jugadores.length === 0) {
+              await redis.del(key);
+              await redis.del(`reinicio:${key.replace("sala:", "")}`);
+            }
+          }
+        }, 10000);
+      
+      
+        
       });
 
       ws.on("close", async () => {
