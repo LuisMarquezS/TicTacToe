@@ -29,9 +29,13 @@ function App() {
   useEffect(() => {
     socketRef.current = new WebSocket("wss://tictactoe-lv05.onrender.com");
   
+    socketRef.current.onopen = () => {
+      console.log("🔌 Socket conectado");
+    };
+  
     socketRef.current.onmessage = (msg) => {
       const data = JSON.parse(msg.data);
-      console.log("📩 Recibido del servidor:", data);
+      console.log("📥 Mensaje recibido:", data);
   
       if (data.type === "registroOK") {
         setFase("menu");
@@ -39,10 +43,12 @@ function App() {
       }
   
       if (data.type === "listaJugadores") {
+        console.log("🔁 Actualizando jugadores:", data.jugadores);
         setJugadoresOnline(data.jugadores);
       }
   
       if (data.type === "listaSalas") {
+        console.log("🔁 Actualizando salas:", data.salas);
         setSalasDisponibles(data.salas);
       }
   
