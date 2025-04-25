@@ -27,13 +27,18 @@ function App() {
 
   // Crear socket al montar
   useEffect(() => {
-    socketRef.current = new WebSocket("wss://tictactoe-lv05.onrender.com");
+    const socket = new WebSocket("wss://tictactoe-lv05.onrender.com");
+    socketRef.current = socket;
   
-    socketRef.current.onopen = () => {
+    socket.onopen = () => {
       console.log("🔌 Socket conectado");
     };
   
-    socketRef.current.onmessage = (msg) => {
+    socket.onerror = (err) => {
+      console.error("⚠️ Error de WebSocket:", err);
+    };
+  
+    socket.onmessage = (msg) => {
       const data = JSON.parse(msg.data);
       console.log("📥 Mensaje recibido:", data);
   
@@ -43,12 +48,12 @@ function App() {
       }
   
       if (data.type === "listaJugadores") {
-        console.log("🔁 Actualizando jugadores:", data.jugadores);
+        console.log("🧠 Lista actualizada:", data.jugadores);
         setJugadoresOnline(data.jugadores);
       }
   
       if (data.type === "listaSalas") {
-        console.log("🔁 Actualizando salas:", data.salas);
+        console.log("📊 Salas actualizadas:", data.salas);
         setSalasDisponibles(data.salas);
       }
   
@@ -233,7 +238,7 @@ return (
         zIndex: 9999,
         borderRadius: "50px",
       }}>
-        <p>> SYSTEM SHUTDOWN...</p>
+        <p> SYSTEM SHUTDOWN...</p>
       </div>
     )}
 
