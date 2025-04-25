@@ -179,15 +179,22 @@ function App() {
   const enviarRegistro = () => {
     const nombre = nombreInput.trim();
     if (!nombre) return alert("Ingresa un nombre válido");
-
+  
+    // Si el socket está cerrado, lo volvemos a crear
+    if (!socketRef.current || socketRef.current.readyState > 1) {
+      socketRef.current = new WebSocket("wss://tictactoe-lv05.onrender.com");
+      socketRef.current.addEventListener("open", () => {
+        socketRef.current.send(JSON.stringify({ type: "registro", nombre }));
+      });
+      return;
+    }
+  
     if (socketRef.current.readyState === 0) {
       socketRef.current.addEventListener("open", () => {
         socketRef.current.send(JSON.stringify({ type: "registro", nombre }));
       });
     } else if (socketRef.current.readyState === 1) {
       socketRef.current.send(JSON.stringify({ type: "registro", nombre }));
-    } else {
-      return alert("Conexión no disponible.");
     }
   };
 
