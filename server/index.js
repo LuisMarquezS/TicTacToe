@@ -44,7 +44,8 @@ if (cluster.isMaster) {
           ws.sala = null;
           await redis.hSet("jugadores", nombre, "activo");
           ws.send(JSON.stringify({ type: "registroOK" }));
-          enviarListas(ws);
+          await enviarListasGlobal();
+
         }
 
         if (data.type === "crearSala") {
@@ -57,7 +58,7 @@ if (cluster.isMaster) {
           ws.sala = nombreSala;
           await redis.rPush(`sala:${nombreSala}`, ws.usuario);
           ws.send(JSON.stringify({ type: "esperandoJugador" }));
-          enviarListas(ws);
+          await enviarListasGlobal();
         }
 
         if (data.type === "unirseSala") {
@@ -81,7 +82,7 @@ if (cluster.isMaster) {
               }
             }
           }
-          enviarListas(ws);
+          await enviarListasGlobal();
         }
 
         if (data.type === "jugada") {
@@ -127,25 +128,29 @@ if (cluster.isMaster) {
           }
           await redis.del(`sala:${sala}`);
           await redis.del(`reinicio:${sala}`);
-          enviarListas(ws);
+          await enviarListasGlobal();
         }
       });
 
       ws.on("close", async () => {
         const nombre = ws.usuario;
         if (nombre) await redis.hDel("jugadores", nombre);
+        await enviarListasGlobal();
+
       });
     });
 
-    async function enviarListas(ws) {
+    async function enviarListasGlobal() {
       const jugadores = await redis.hKeys("jugadores");
       const keys = await redis.keys("sala:*");
       const salas = [];
+    
       for (const key of keys) {
         const nombre = key.replace("sala:", "");
         const jugadoresSala = await redis.lRange(key, 0, -1);
         salas.push({ nombre, cantidad: jugadoresSala.length });
       }
+    
       for (const cliente of wss.clients) {
         if (cliente.readyState === WebSocket.OPEN) {
           cliente.send(JSON.stringify({ type: "listaJugadores", jugadores }));
