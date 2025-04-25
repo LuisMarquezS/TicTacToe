@@ -1,4 +1,4 @@
-// index.js FINAL sincronizado con broadcast manual como en versión sin hilos
+// index.js FINAL con cierre correcto de bloques y sin errores de sintaxis
 const cluster = require("cluster");
 const os = require("os");
 const WebSocket = require("ws");
@@ -168,8 +168,9 @@ if (cluster.isMaster) {
 
         await enviarListasGlobal();
       });
+    }); // ← cierre correcto del connection
 
-    // limpieza automática cada 10 segundos
+    // limpieza automática cada 10 segundos (fuera del connection)
     setInterval(async () => {
       const keys = await redis.keys("sala:*");
       for (const key of keys) {
@@ -186,4 +187,4 @@ if (cluster.isMaster) {
     console.error(`❌ [PID ${process.pid}] Error al conectar a Redis:`, err);
     process.exit(1);
   });
-  
+} // ← cierre final del else
