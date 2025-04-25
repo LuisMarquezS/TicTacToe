@@ -42,7 +42,7 @@ if (cluster.isMaster) {
 
           ws.usuario = nombre;
           ws.sala = null;
-          await redis.hset("jugadores", nombre, "activo");
+          await redis.hSet("jugadores", nombre, "activo");
           ws.send(JSON.stringify({ type: "registroOK" }));
           enviarListas(ws);
         }
@@ -55,16 +55,16 @@ if (cluster.isMaster) {
             return;
           }
           ws.sala = nombreSala;
-          await redis.rpush(`sala:${nombreSala}`, ws.usuario);
+          await redis.rPush(`sala:${nombreSala}`, ws.usuario);
           ws.send(JSON.stringify({ type: "esperandoJugador" }));
           enviarListas(ws);
         }
 
         if (data.type === "unirseSala") {
           const nombreSala = data.nombre;
-          const jugadoresSala = await redis.lrange(`sala:${nombreSala}`, 0, -1);
+          const jugadoresSala = await redis.lRange(`sala:${nombreSala}`, 0, -1);
           if (jugadoresSala.length === 1) {
-            await redis.rpush(`sala:${nombreSala}`, ws.usuario);
+            await redis.rPush(`sala:${nombreSala}`, ws.usuario);
             ws.sala = nombreSala;
             const jugadores = [...jugadoresSala, ws.usuario];
 
@@ -87,7 +87,7 @@ if (cluster.isMaster) {
         if (data.type === "jugada") {
           const sala = ws.sala;
           if (!sala) return;
-          const jugadores = await redis.lrange(`sala:${sala}`, 0, -1);
+          const jugadores = await redis.lRange(`sala:${sala}`, 0, -1);
           const rival = jugadores.find(n => n !== ws.usuario);
           const target = [...wss.clients].find(c => c.usuario === rival);
           if (target) {
@@ -98,18 +98,18 @@ if (cluster.isMaster) {
         if (data.type === "reiniciar") {
           const sala = ws.sala;
           if (!sala) return;
-          await redis.sadd(`reinicio:${sala}`, ws.usuario);
-          const reinicios = await redis.smembers(`reinicio:${sala}`);
+          await redis.sAdd(`reinicio:${sala}`, ws.usuario);
+          const reinicios = await redis.sMembers(`reinicio:${sala}`);
 
           if (reinicios.length === 2) {
-            const jugadores = await redis.lrange(`sala:${sala}`, 0, -1);
+            const jugadores = await redis.lRange(`sala:${sala}`, 0, -1);
             for (const nombre of jugadores) {
               const target = [...wss.clients].find(c => c.usuario === nombre);
               if (target) target.send(JSON.stringify({ type: "reiniciar" }));
             }
             await redis.del(`reinicio:${sala}`);
           } else {
-            const jugadores = await redis.lrange(`sala:${sala}`, 0, -1);
+            const jugadores = await redis.lRange(`sala:${sala}`, 0, -1);
             const rival = jugadores.find(n => n !== ws.usuario);
             const target = [...wss.clients].find(c => c.usuario === rival);
             if (target) target.send(JSON.stringify({ type: "solicitaReinicio" }));
@@ -119,7 +119,7 @@ if (cluster.isMaster) {
         if (data.type === "salirSala") {
           const sala = ws.sala;
           if (!sala) return;
-          const jugadores = await redis.lrange(`sala:${sala}`, 0, -1);
+          const jugadores = await redis.lRange(`sala:${sala}`, 0, -1);
           const rival = jugadores.find(n => n !== ws.usuario);
           if (rival) {
             const target = [...wss.clients].find(c => c.usuario === rival);
@@ -133,17 +133,17 @@ if (cluster.isMaster) {
 
       ws.on("close", async () => {
         const nombre = ws.usuario;
-        if (nombre) await redis.hdel("jugadores", nombre);
+        if (nombre) await redis.hDel("jugadores", nombre);
       });
     });
 
     async function enviarListas(ws) {
-      const jugadores = await redis.hkeys("jugadores");
+      const jugadores = await redis.hKeys("jugadores");
       const keys = await redis.keys("sala:*");
       const salas = [];
       for (const key of keys) {
         const nombre = key.replace("sala:", "");
-        const jugadoresSala = await redis.lrange(key, 0, -1);
+        const jugadoresSala = await redis.lRange(key, 0, -1);
         salas.push({ nombre, cantidad: jugadoresSala.length });
       }
       for (const cliente of wss.clients) {
