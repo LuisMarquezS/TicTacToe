@@ -28,34 +28,35 @@ function App() {
   // Crear socket al montar
   useEffect(() => {
     socketRef.current = new WebSocket("wss://tictactoe-lv05.onrender.com");
-
+  
     socketRef.current.onmessage = (msg) => {
-      console.log("📩 Mensaje recibido del servidor:", msg.data);
       const data = JSON.parse(msg.data);
-
+      console.log("📩 Recibido del servidor:", data);
+  
       if (data.type === "registroOK") {
         setFase("menu");
         setNombreJugador(nombreInput);
       }
-      if (data.type === "error") {
-        alert(data.mensaje);
-        setNombreInput("");
-      }
+  
       if (data.type === "listaJugadores") {
         setJugadoresOnline(data.jugadores);
       }
+  
       if (data.type === "listaSalas") {
         setSalasDisponibles(data.salas);
       }
+  
       if (data.type === "esperandoJugador") {
         setFase("espera");
       }
+  
       if (data.type === "inicioPartida") {
         setJugador(data.jugador);
         setFase("juego");
         setTuNombre(data.tuNombre);
         setRival(data.rival);
       }
+  
       if (data.type === "jugada") {
         const nuevo = [...tablero];
         nuevo[data.casilla] = data.jugador;
@@ -64,14 +65,17 @@ function App() {
         const resultado = verificarGanador(nuevo);
         if (resultado) setGanador(resultado);
       }
+  
       if (data.type === "reiniciar") {
         reiniciarJuego();
         setPendienteReinicio(false);
         setMensajeReinicio(false);
       }
+  
       if (data.type === "solicitaReinicio") {
         setMensajeReinicio(true);
       }
+  
       if (data.type === "salaCerrada") {
         alert("El otro jugador ha salido de la sala.");
         volverAlMenu();
