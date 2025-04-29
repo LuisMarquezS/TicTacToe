@@ -1,100 +1,103 @@
-// App.js actualizado con socket estable y manejado por useRef
+// App.js FINAL para correr LOCAL, sincronizado correctamente
 import { useEffect, useRef, useState } from "react";
 import './Fallout.css';
 
 function App() {
+  // Referencia al WebSocket
   const socketRef = useRef(null);
 
-  // Estados principales
-  const [fase, setFase] = useState("registro");
-  const [nombreJugador, setNombreJugador] = useState("");
-  const [nombreInput, setNombreInput] = useState("");
-  const [jugadoresOnline, setJugadoresOnline] = useState([]);
-  const [salasDisponibles, setSalasDisponibles] = useState([]);
+  // Estados principales de flujo
+  const [fase, setFase] = useState("registro"); // Fase del juego: registro, menu, espera, juego
+  const [nombreJugador, setNombreJugador] = useState(""); // Nombre actual del jugador
+  const [nombreInput, setNombreInput] = useState(""); // Nombre escrito en el input
+  const [jugadoresOnline, setJugadoresOnline] = useState([]); // Lista de jugadores conectados
+  const [salasDisponibles, setSalasDisponibles] = useState([]); // Lista de salas disponibles
 
-  // Estados de juego
-  const [jugador, setJugador] = useState("");
-  const [tuNombre, setTuNombre] = useState("");
-  const [rival, setRival] = useState("");
-  const [turno, setTurno] = useState("X");
-  const [tablero, setTablero] = useState(Array(9).fill(""));
-  const [ganador, setGanador] = useState(null);
-  const [sala, setSala] = useState("");
-  const [inputSala, setInputSala] = useState("");
-  const [pendienteReinicio, setPendienteReinicio] = useState(false);
-  const [mensajeReinicio, setMensajeReinicio] = useState(false);
+  // Estados de la partida
+  const [jugador, setJugador] = useState(""); // X u O
+  const [tuNombre, setTuNombre] = useState(""); // Tu propio nombre
+  const [rival, setRival] = useState(""); // Nombre del oponente
+  const [turno, setTurno] = useState("X"); // Turno actual
+  const [tablero, setTablero] = useState(Array(9).fill("")); // Estado del tablero de juego
+  const [ganador, setGanador] = useState(null); // Ganador actual o empate
+  const [sala, setSala] = useState(""); // Sala actual donde estás jugando
+  const [inputSala, setInputSala] = useState(""); // Nombre de la sala que quieres crear
+  const [pendienteReinicio, setPendienteReinicio] = useState(false); // Espera de respuesta de revancha
+  const [mensajeReinicio, setMensajeReinicio] = useState(false); // Mensaje de que el rival pidió revancha
+
+  // Estados para apagado simulado tipo Fallout
   const [apagado, setApagado] = useState(false);
 
-  // Crear socket al montar
+  // Función que simula el apagado (pantalla negra)
+  const apagarSistema = () => {
+    setApagado(true);
+    setTimeout(() => {
+      salirDeSala(); // Salimos y regresamos a registro
+      setApagado(false);
+    }, 3000);
+  };
+
+  // Efecto que conecta el WebSocket al iniciar
   useEffect(() => {
-    const socket = new WebSocket("wss://tictactoe-lv05.onrender.com");
-    socketRef.current = socket;
-  
-    socket.onopen = () => {
-      console.log("🔌 Socket conectado");
-    };
-  
-    socket.onerror = (err) => {
-      console.error("⚠️ Error de WebSocket:", err);
-    };
-  
-    socket.onmessage = (msg) => {
+    socketRef.current = new WebSocket("ws://localhost:3001");
+
+    socketRef.current.onmessage = (msg) => {
       const data = JSON.parse(msg.data);
-      console.log("📥 Mensaje recibido:", data);
-  
+      console.log("📦 Data recibida:", data);
+
+      // Respuestas según tipo de mensaje recibido
       if (data.type === "registroOK") {
         setFase("menu");
         setNombreJugador(nombreInput);
       }
-  
+      if (data.type === "error") {
+        alert(data.mensaje);
+        setNombreInput("");
+      }
       if (data.type === "listaJugadores") {
-        console.log("🧠 Lista actualizada:", data.jugadores);
         setJugadoresOnline(data.jugadores);
       }
-  
       if (data.type === "listaSalas") {
-        console.log("📊 Salas actualizadas:", data.salas);
         setSalasDisponibles(data.salas);
       }
-  
       if (data.type === "esperandoJugador") {
         setFase("espera");
       }
-  
       if (data.type === "inicioPartida") {
         setJugador(data.jugador);
         setFase("juego");
         setTuNombre(data.tuNombre);
         setRival(data.rival);
+        if (Array.isArray(data.tablero)) {
+          setTablero([...data.tablero]);
+        }
       }
-  
       if (data.type === "jugada") {
-        const nuevo = [...tablero];
-        nuevo[data.casilla] = data.jugador;
-        setTablero(nuevo);
-        setTurno(data.jugador === "X" ? "O" : "X");
-        const resultado = verificarGanador(nuevo);
-        if (resultado) setGanador(resultado);
+        if (Array.isArray(data.tablero)) {
+          setTablero([...data.tablero]);
+          setTurno(data.jugador === "X" ? "O" : "X");
+          const resultado = verificarGanador([...data.tablero]);
+          if (resultado) setGanador(resultado);
+        } else {
+          console.warn("❗ Tablero inválido recibido:", data.tablero);
+        }
       }
-  
       if (data.type === "reiniciar") {
         reiniciarJuego();
         setPendienteReinicio(false);
         setMensajeReinicio(false);
       }
-  
       if (data.type === "solicitaReinicio") {
         setMensajeReinicio(true);
       }
-  
       if (data.type === "salaCerrada") {
         alert("El otro jugador ha salido de la sala.");
         volverAlMenu();
       }
     };
-  }, [tablero]);
+  }, []);
 
-  // Verifica si alguien ganó
+  // Verificar si hay un ganador o empate
   const verificarGanador = (nuevoTablero) => {
     const lineas = [
       [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -109,53 +112,47 @@ function App() {
     return nuevoTablero.includes("") ? null : "Empate";
   };
 
-  // Click en casilla
+  // Enviar jugada al servidor
   const handleClick = (i) => {
     if (tablero[i] === "" && turno === jugador && !ganador && !pendienteReinicio) {
-      const nuevo = [...tablero];
-      nuevo[i] = jugador;
-      setTablero(nuevo);
-      setTurno(jugador === "X" ? "O" : "X");
       socketRef.current.send(JSON.stringify({ type: "jugada", casilla: i, jugador }));
-      const resultado = verificarGanador(nuevo);
-      if (resultado) setGanador(resultado);
     }
   };
 
-  // Crear sala
+  // Crear una sala nueva
   const crearSala = () => {
     if (inputSala.trim() === "") return alert("Nombre de sala inválido");
     socketRef.current.send(JSON.stringify({ type: "crearSala", nombre: inputSala.trim() }));
     setSala(inputSala.trim());
   };
 
-  // Unirse a sala
+  // Unirse a una sala existente
   const unirseSala = (nombreSala) => {
     socketRef.current.send(JSON.stringify({ type: "unirseSala", nombre: nombreSala }));
     setSala(nombreSala);
   };
 
-  // Solicitar reinicio
+  // Solicitar revancha
   const solicitarReinicio = () => {
     setPendienteReinicio(true);
     socketRef.current.send(JSON.stringify({ type: "reiniciar" }));
   };
 
-  // Aceptar reinicio
+  // Aceptar la solicitud de revancha
   const aceptarReinicio = () => {
     setMensajeReinicio(false);
     setPendienteReinicio(true);
     socketRef.current.send(JSON.stringify({ type: "reiniciar" }));
   };
 
-  // Reiniciar tablero
+  // Resetear el tablero para nueva partida
   const reiniciarJuego = () => {
     setTablero(Array(9).fill(""));
     setTurno("X");
     setGanador(null);
   };
 
-  // Salir de sala manual
+  // Salir de la sala y volver al registro
   const salirDeSala = () => {
     socketRef.current.send(JSON.stringify({ type: "salirSala" }));
     setFase("registro");
@@ -170,7 +167,20 @@ function App() {
     setMensajeReinicio(false);
   };
 
-  // Volver a menú sin perder nombre
+  // Salir correctamente de la sala pero volver al menú sin borrar nombre
+  const salirYVolverAlMenu = () => {
+    socketRef.current.send(JSON.stringify({ type: "salirSala" }));
+    setFase("menu");
+    setTablero(Array(9).fill(""));
+    setGanador(null);
+    setTurno("X");
+    setJugador("");
+    setSala("");
+    setPendienteReinicio(false);
+    setMensajeReinicio(false);
+  };
+
+  // Volver al menú sin avisar al servidor (por ejemplo si rival se desconecta)
   const volverAlMenu = () => {
     setFase("menu");
     setTablero(Array(9).fill(""));
@@ -182,40 +192,24 @@ function App() {
     setMensajeReinicio(false);
   };
 
-  // Apagar interfaz (modo apagado)
-  const apagarSistema = () => {
-    setApagado(true);
-    setTimeout(() => {
-      salirDeSala();
-      setApagado(false);
-    }, 3000);
-  };
-
-  // Enviar registro solo cuando socket esté listo
+  // Enviar registro inicial al servidor
   const enviarRegistro = () => {
     const nombre = nombreInput.trim();
     if (!nombre) return alert("Ingresa un nombre válido");
-  
-    // Si el socket está cerrado, lo volvemos a crear
-    if (!socketRef.current || socketRef.current.readyState > 1) {
-      socketRef.current = new WebSocket("wss://tictactoe-lv05.onrender.com");
-      socketRef.current.addEventListener("open", () => {
-        socketRef.current.send(JSON.stringify({ type: "registro", nombre }));
-      });
-      return;
-    }
-  
+
     if (socketRef.current.readyState === 0) {
       socketRef.current.addEventListener("open", () => {
         socketRef.current.send(JSON.stringify({ type: "registro", nombre }));
       });
     } else if (socketRef.current.readyState === 1) {
       socketRef.current.send(JSON.stringify({ type: "registro", nombre }));
-      console.log("➡️ Enviando registro:", nombre);
+    } else {
+      socketRef.current = new WebSocket("ws://localhost:3001");
+      socketRef.current.addEventListener("open", () => {
+        socketRef.current.send(JSON.stringify({ type: "registro", nombre }));
+      });
     }
   };
-
-
 // Estructura visual principal de la aplicación
 return (
   <div className="terminal-frame">
@@ -326,16 +320,16 @@ return (
                   </div>
                 )}
 
-                <button onClick={salirDeSala} style={{ marginTop: "1rem" }}>Salir de la Sala</button>
+                <button onClick={salirYVolverAlMenu} style={{ marginTop: "1rem" }}>Salir de la Sala</button>
               </div>
 
               {/* Tablero central del juego */}
               <div className="panel-tablero">
                 <div className="tablero">
-                  {tablero.map((casilla, i) => (
-                    <div key={i} onClick={() => handleClick(i)} className="casilla">
-                      {casilla}
-                    </div>
+                      {tablero.map((casilla, i) => (
+                       <div key={i} onClick={() => handleClick(i)} className="casilla">
+                       {casilla}
+                        </div>
                   ))}
                 </div>
               </div>

@@ -1,13 +1,13 @@
-// index.js FINAL con cierre correcto de bloques y sin errores de sintaxis
+// index.js - Servidor Local con Cluster configurado pero solo 1 Worker activo (para que todo funcione como antes)
 const cluster = require("cluster");
 const os = require("os");
 const WebSocket = require("ws");
-const { createClient } = require("redis");
 
-const numCPUs = os.cpus().length;
+  // Configuración del cluster
+const numCPUs = 8;
 
 if (cluster.isMaster) {
-  console.log(`🔧 Master PID ${process.pid} corriendo - iniciando ${numCPUs} procesos hijos`);
+  console.log(`🔧 Master PID ${process.pid} corriendo - iniciando ${numCPUs} proceso hijo`);
   for (let i = 0; i < numCPUs; i++) cluster.fork();
 
   cluster.on("exit", (worker) => {
@@ -16,175 +16,148 @@ if (cluster.isMaster) {
   });
 
 } else {
-  const redis = createClient({ url: process.env.REDIS_URL || "redis://localhost:6379" });
-  redis.on("error", (err) => console.error("Redis error:", err));
+  let jugadores = {}; // { nombre: socket }
+  let salas = {}; // { nombreSala: { jugadores: [nombre1, nombre2], tablero: [] } }
+  let reiniciosPendientes = {}; // { nombreSala: Set }
 
-  redis.connect().then(() => {
-    console.log(`🟢 [PID ${process.pid}] Conectado a Redis`);
-    const wss = new WebSocket.Server({ port: 3001 });
-    console.log(`✅ Worker PID ${process.pid} escuchando en ws://localhost:3001`);
+  const wss = new WebSocket.Server({ port: 3001 });
+  console.log(`✅ Worker PID ${process.pid} escuchando en ws://localhost:3001`);
 
-    async function broadcast(type, payload) {
-      for (const client of wss.clients) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({ type, ...payload }));
-        }
+  function broadcastListas() {
+    const listaJugadores = Object.keys(jugadores);
+    const listaSalas = Object.keys(salas).map(nombreSala => ({
+      nombre: nombreSala,
+      cantidad: salas[nombreSala].jugadores.length
+    }));
+
+    const dataJugadores = JSON.stringify({ type: "listaJugadores", jugadores: listaJugadores });
+    const dataSalas = JSON.stringify({ type: "listaSalas", salas: listaSalas });
+
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(dataJugadores);
+        client.send(dataSalas);
       }
-    }
-
-    async function enviarListasGlobal() {
-      const jugadores = await redis.hKeys("jugadores");
-      const keys = await redis.keys("sala:*");
-      const salas = [];
-      for (const key of keys) {
-        const nombre = key.replace("sala:", "");
-        const jugadoresSala = await redis.lRange(key, 0, -1);
-        salas.push({ nombre, cantidad: jugadoresSala.length });
+    });
+  }
+// Broadcast de las listas de jugadores y salas a todos los clientes conectados
+  wss.on("connection", (ws) => {
+    ws.on("message", (msg) => {
+      const data = JSON.parse(msg);
+// Manejo de mensajes del cliente
+      if (data.type === "registro") {
+        if (jugadores[data.nombre]) {
+          ws.send(JSON.stringify({ type: "error", mensaje: "Nombre ya en uso" }));
+          return;
+        }
+        ws.nombre = data.nombre;
+        jugadores[data.nombre] = ws;
+        ws.send(JSON.stringify({ type: "registroOK" }));
+        broadcastListas();
       }
-      await broadcast("listaJugadores", { jugadores });
-      await broadcast("listaSalas", { salas });
-    }
 
-    wss.on("connection", (ws) => {
-      ws.on("message", async (msg) => {
-        const data = JSON.parse(msg);
-
-        if (data.type === "registro") {
-          const nombre = data.nombre;
-          const yaExiste = await redis.hExists("jugadores", nombre);
-          if (yaExiste) {
-            ws.send(JSON.stringify({ type: "error", mensaje: "Nombre ya en uso" }));
-            return;
-          }
-          ws.usuario = nombre;
-          ws.sala = null;
-          await redis.hSet("jugadores", nombre, "activo");
-          ws.send(JSON.stringify({ type: "registroOK" }));
-          await enviarListasGlobal();
+      if (data.type === "crearSala") {
+        if (salas[data.nombre]) {
+          ws.send(JSON.stringify({ type: "error", mensaje: "La sala ya existe" }));
+          return;
         }
+        salas[data.nombre] = { jugadores: [ws.nombre], tablero: Array(9).fill("") };
+        ws.sala = data.nombre;
+        ws.send(JSON.stringify({ type: "esperandoJugador" }));
+        broadcastListas();
+      }
 
-        if (data.type === "crearSala") {
-          const nombreSala = data.nombre;
-          const existe = await redis.exists(`sala:${nombreSala}`);
-          if (existe) {
-            ws.send(JSON.stringify({ type: "error", mensaje: "La sala ya existe" }));
-            return;
-          }
-          ws.sala = nombreSala;
-          await redis.rPush(`sala:${nombreSala}`, ws.usuario);
-          ws.send(JSON.stringify({ type: "esperandoJugador" }));
-          await enviarListasGlobal();
-        }
+      if (data.type === "unirseSala") {
+        if (salas[data.nombre] && salas[data.nombre].jugadores.length === 1) {
+          salas[data.nombre].jugadores.push(ws.nombre);
+          ws.sala = data.nombre;
+          const jugadoresSala = salas[data.nombre].jugadores;
+          const tablero = salas[data.nombre].tablero;
 
-        if (data.type === "unirseSala") {
-          const nombreSala = data.nombre;
-          const jugadoresSala = await redis.lRange(`sala:${nombreSala}`, 0, -1);
-          if (jugadoresSala.length === 1) {
-            await redis.rPush(`sala:${nombreSala}`, ws.usuario);
-            ws.sala = nombreSala;
-            const jugadores = [...jugadoresSala, ws.usuario];
-
-            for (const nombre of jugadores) {
-              const target = [...wss.clients].find(c => c.usuario === nombre);
-              if (target) {
-                target.send(JSON.stringify({
-                  type: "inicioPartida",
-                  jugador: nombre === jugadores[0] ? "X" : "O",
-                  tuNombre: nombre,
-                  rival: jugadores.find(n => n !== nombre)
-                }));
-              }
-            }
-            await enviarListasGlobal();
-          }
-        }
-
-        if (data.type === "jugada") {
-          const sala = ws.sala;
-          if (!sala) return;
-          const jugadores = await redis.lRange(`sala:${sala}`, 0, -1);
-          for (const nombre of jugadores) {
-            const target = [...wss.clients].find(c => c.usuario === nombre);
-            if (target) {
-              target.send(JSON.stringify({
-                type: "jugada",
-                casilla: data.casilla,
-                jugador: data.jugador
+          jugadoresSala.forEach((nombre, index) => {
+            if (jugadores[nombre]) {
+              jugadores[nombre].send(JSON.stringify({
+                type: "inicioPartida",
+                jugador: index === 0 ? "X" : "O",
+                tuNombre: nombre,
+                rival: jugadoresSala.find(n => n !== nombre),
+                tablero: tablero
               }));
             }
-          }
-        }
-
-        if (data.type === "reiniciar") {
-          const sala = ws.sala;
-          if (!sala) return;
-          await redis.sAdd(`reinicio:${sala}`, ws.usuario);
-          const reinicios = await redis.sMembers(`reinicio:${sala}`);
-
-          if (reinicios.length === 2) {
-            const jugadores = await redis.lRange(`sala:${sala}`, 0, -1);
-            for (const nombre of jugadores) {
-              const target = [...wss.clients].find(c => c.usuario === nombre);
-              if (target) target.send(JSON.stringify({ type: "reiniciar" }));
-            }
-            await redis.del(`reinicio:${sala}`);
-          } else {
-            const jugadores = await redis.lRange(`sala:${sala}`, 0, -1);
-            const rival = jugadores.find(n => n !== ws.usuario);
-            const target = [...wss.clients].find(c => c.usuario === rival);
-            if (target) target.send(JSON.stringify({ type: "solicitaReinicio" }));
-          }
-        }
-
-        if (data.type === "salirSala") {
-          const sala = ws.sala;
-          if (!sala) return;
-          const jugadores = await redis.lRange(`sala:${sala}`, 0, -1);
-          const rival = jugadores.find(n => n !== ws.usuario);
-          if (rival) {
-            const target = [...wss.clients].find(c => c.usuario === rival);
-            if (target) target.send(JSON.stringify({ type: "salaCerrada" }));
-          }
-          await redis.lRem(`sala:${sala}`, 0, ws.usuario);
-          await redis.del(`reinicio:${sala}`);
-          ws.sala = null;
-          await enviarListasGlobal();
-        }
-      });
-
-      ws.on("close", async () => {
-        const nombre = ws.usuario;
-        const sala = ws.sala;
-        if (nombre) await redis.hDel("jugadores", nombre);
-
-        if (sala) {
-          await redis.lRem(`sala:${sala}`, 0, nombre);
-          const jugadores = await redis.lRange(`sala:${sala}`, 0, -1);
-          if (jugadores.length === 0) {
-            await redis.del(`sala:${sala}`);
-            await redis.del(`reinicio:${sala}`);
-          }
-        }
-
-        await enviarListasGlobal();
-      });
-    }); // ← cierre correcto del connection
-
-    // limpieza automática cada 10 segundos (fuera del connection)
-    setInterval(async () => {
-      const keys = await redis.keys("sala:*");
-      for (const key of keys) {
-        const jugadores = await redis.lRange(key, 0, -1);
-        if (jugadores.length === 0) {
-          await redis.del(key);
-          const nombre = key.replace("sala:", "");
-          await redis.del(`reinicio:${nombre}`);
+          });
+          broadcastListas();
         }
       }
-    }, 10000);
+// El cliente envía un mensaje de jugada
+      if (data.type === "jugada") {
+        const sala = ws.sala;
+        if (!sala) return;
+        salas[sala].tablero[data.casilla] = data.jugador;
+        const tableroActual = salas[sala].tablero;
 
-  }).catch(err => {
-    console.error(`❌ [PID ${process.pid}] Error al conectar a Redis:`, err);
-    process.exit(1);
+        salas[sala].jugadores.forEach(nombre => {
+          if (jugadores[nombre]) {
+            jugadores[nombre].send(JSON.stringify({
+              type: "jugada",
+              casilla: data.casilla,
+              jugador: data.jugador,
+              tablero: tableroActual
+            }));
+          }
+        });
+      }
+// El cliente envía un mensaje de reinicio
+      if (data.type === "reiniciar") {
+        const sala = ws.sala;
+        if (!sala) return;
+        if (!reiniciosPendientes[sala]) reiniciosPendientes[sala] = new Set();
+        reiniciosPendientes[sala].add(ws.nombre);
+
+        if (reiniciosPendientes[sala].size === 2) {
+          salas[sala].tablero = Array(9).fill("");
+          salas[sala].jugadores.forEach(nombre => {
+            if (jugadores[nombre]) {
+              jugadores[nombre].send(JSON.stringify({ type: "reiniciar" }));
+            }
+          });
+          reiniciosPendientes[sala] = new Set();
+        } else {
+          const rival = salas[sala].jugadores.find(nombre => nombre !== ws.nombre);
+          if (jugadores[rival]) {
+            jugadores[rival].send(JSON.stringify({ type: "solicitaReinicio" }));
+          }
+        }
+      }
+// El cliente envía un mensaje de salir de la sala
+      if (data.type === "salirSala") {
+        const sala = ws.sala;
+        if (!sala) return;
+
+        const rival = salas[sala].jugadores.find(nombre => nombre !== ws.nombre);
+        if (jugadores[rival]) {
+          jugadores[rival].send(JSON.stringify({ type: "salaCerrada" }));
+        }
+
+        delete salas[sala];
+        delete reiniciosPendientes[sala];
+        ws.sala = null;
+        broadcastListas();
+      }
+    });
+// El cliente se desconecta
+    ws.on("close", () => {
+      const nombre = ws.nombre;
+      if (nombre) delete jugadores[nombre];
+
+      const sala = ws.sala;
+      if (sala && salas[sala]) {
+        salas[sala].jugadores = salas[sala].jugadores.filter(n => n !== nombre);
+        if (salas[sala].jugadores.length === 0) {
+          delete salas[sala];
+          delete reiniciosPendientes[sala];
+        }
+      }
+      broadcastListas();
+    });
   });
-} // ← cierre final del else
+}
