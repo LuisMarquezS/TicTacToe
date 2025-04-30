@@ -1,27 +1,29 @@
-import { useEffect, useRef, useState } from "react";
-import './Fallout.css';
+import { useEffect, useRef, useState } from "react"; // Hooks de React
+import './Fallout.css'; // Estilo personalizado estilo Fallout
 
 function App() {
-  const socketRef = useRef(null);
+  const socketRef = useRef(null); // Referencia al WebSocket
 
-  const [fase, setFase] = useState("registro");
-  const [nombreJugador, setNombreJugador] = useState("");
-  const [nombreInput, setNombreInput] = useState("");
-  const [jugadoresOnline, setJugadoresOnline] = useState([]);
-  const [salasDisponibles, setSalasDisponibles] = useState([]);
+  // Estados generales del juego
+  const [fase, setFase] = useState("registro"); // Controla en qué parte del juego estás (registro, menú, juego...)
+  const [nombreJugador, setNombreJugador] = useState(""); // Nombre del jugador actual
+  const [nombreInput, setNombreInput] = useState(""); // Input para ingresar nombre
+  const [jugadoresOnline, setJugadoresOnline] = useState([]); // Lista de jugadores conectados
+  const [salasDisponibles, setSalasDisponibles] = useState([]); // Lista de salas creadas
 
-  const [jugador, setJugador] = useState(""); 
-  const [tuNombre, setTuNombre] = useState("");
-  const [rival, setRival] = useState("");
-  const [turno, setTurno] = useState("X");
-  const [tablero, setTablero] = useState(Array(9).fill(""));
-  const [ganador, setGanador] = useState(null);
-  const [sala, setSala] = useState("");
-  const [inputSala, setInputSala] = useState("");
-  const [pendienteReinicio, setPendienteReinicio] = useState(false);
-  const [mensajeReinicio, setMensajeReinicio] = useState(false);
+  // Estados de la partida
+  const [jugador, setJugador] = useState(""); // "X" o "O"
+  const [tuNombre, setTuNombre] = useState(""); // Tu nombre dentro de la sala
+  const [rival, setRival] = useState(""); // El nombre del otro jugador
+  const [turno, setTurno] = useState("X"); // De quién es el turno actual
+  const [tablero, setTablero] = useState(Array(9).fill("")); // Estado del tablero
+  const [ganador, setGanador] = useState(null); // Almacena el ganador actual
+  const [sala, setSala] = useState(""); // Nombre de la sala
+  const [inputSala, setInputSala] = useState(""); // Input para nombre de sala
+  const [pendienteReinicio, setPendienteReinicio] = useState(false); // Si se solicitó un reinicio
+  const [mensajeReinicio, setMensajeReinicio] = useState(false); // Si el otro jugador pidió reinicio
 
-  const [apagado, setApagado] = useState(false);
+  const [apagado, setApagado] = useState(false); // Controla el efecto visual de apagado
 
   const apagarSistema = () => {
     setApagado(true);
@@ -31,6 +33,7 @@ function App() {
     }, 3000);
   };
 
+  // Conexión y manejo del WebSocket
   useEffect(() => {
     const socket = new WebSocket("ws://localhost:3001");
 
@@ -42,6 +45,7 @@ function App() {
       const data = JSON.parse(msg.data);
       console.log("📦 Data recibida:", data);
 
+      // Manejo de tipos de mensajes
       if (data.type === "registroOK") {
         setFase("menu");
         setNombreJugador(nombreInput);
@@ -66,19 +70,15 @@ function App() {
         setRival(data.rival);
         if (Array.isArray(data.tablero)) {
           setTablero([...data.tablero]);
-          setTurno("X"); // La partida siempre comienza con X
+          setTurno("X");
         }
       }
       if (data.type === "jugada") {
-        console.log("🔵 Jugada recibida:", data.tablero); // 🔥 Aquí también
-
         if (Array.isArray(data.tablero)) {
           setTablero([...data.tablero]);
-          setTurno(data.turno); // 🔥 CORRECCIÓN: turno lo manda el servidor
+          setTurno(data.turno);
           const resultado = verificarGanador([...data.tablero]);
           if (resultado) setGanador(resultado);
-        } else {
-          console.warn("❗ Tablero inválido recibido:", data.tablero);
         }
       }
       if (data.type === "reiniciar") {
@@ -108,6 +108,7 @@ function App() {
     };
   }, []);
 
+  // Verifica si alguien ganó
   const verificarGanador = (nuevoTablero) => {
     const lineas = [
       [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -122,46 +123,47 @@ function App() {
     return nuevoTablero.includes("") ? null : "Empate";
   };
 
+  // Manejo del click en el tablero
   const handleClick = (i) => {
-    console.log("🖱️ Click en casilla:", i);
-    console.log("turno:", turno, "jugador:", jugador, "ganador:", ganador, "casilla:", tablero[i]);
-  
     if (tablero[i] === "" && turno === jugador && !ganador && !pendienteReinicio) {
-      console.log("📤 Enviando jugada...");
       socketRef.current.send(JSON.stringify({ type: "jugada", casilla: i, jugador }));
-    } else {
-      console.warn("⛔ No se envió jugada. Alguna condición falló.");
     }
   };
 
+  // Crear nueva sala
   const crearSala = () => {
     if (inputSala.trim() === "") return alert("Nombre de sala inválido");
     socketRef.current.send(JSON.stringify({ type: "crearSala", nombre: inputSala.trim() }));
     setSala(inputSala.trim());
   };
 
+  // Unirse a una sala existente
   const unirseSala = (nombreSala) => {
     socketRef.current.send(JSON.stringify({ type: "unirseSala", nombre: nombreSala }));
     setSala(nombreSala);
   };
 
+  // Solicitar reinicio de partida
   const solicitarReinicio = () => {
     setPendienteReinicio(true);
     socketRef.current.send(JSON.stringify({ type: "reiniciar" }));
   };
 
+  // Aceptar reinicio recibido del otro jugador
   const aceptarReinicio = () => {
     setMensajeReinicio(false);
     setPendienteReinicio(true);
     socketRef.current.send(JSON.stringify({ type: "reiniciar" }));
   };
 
+  // Reinicia los estados del tablero
   const reiniciarJuego = () => {
     setTablero(Array(9).fill(""));
     setTurno("X");
     setGanador(null);
   };
 
+  // Sale de la sala y reinicia todos los estados
   const salirDeSala = () => {
     socketRef.current.send(JSON.stringify({ type: "salirSala" }));
     setFase("registro");
@@ -176,6 +178,7 @@ function App() {
     setMensajeReinicio(false);
   };
 
+  // Sale de la sala y vuelve al menú
   const salirYVolverAlMenu = () => {
     socketRef.current.send(JSON.stringify({ type: "salirSala" }));
     setFase("menu");
@@ -188,6 +191,7 @@ function App() {
     setMensajeReinicio(false);
   };
 
+  // Vuelve al menú sin enviar mensaje
   const volverAlMenu = () => {
     setFase("menu");
     setTablero(Array(9).fill(""));
@@ -199,6 +203,7 @@ function App() {
     setMensajeReinicio(false);
   };
 
+  // Envía el nombre para registrarse
   const enviarRegistro = () => {
     const nombre = nombreInput.trim();
     if (!nombre) return alert("Ingresa un nombre válido");

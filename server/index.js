@@ -1,17 +1,18 @@
-const cluster = require("cluster");
-const os = require("os");
-const WebSocket = require("ws");
+const cluster = require("cluster"); // Permite crear múltiples procesos para aprovechar todos los núcleos de CPU
+const os = require("os"); // Módulo del sistema operativo
+const WebSocket = require("ws"); // Módulo para manejar WebSockets
 
-const numCPUs = os.cpus().length;
-const workers = {};
+const numCPUs = os.cpus().length; // Obtiene el número de núcleos de CPU disponibles
+const workers = {}; // Objeto para almacenar los workers
 
 if (cluster.isMaster) {
   console.log(`🔧 Master PID ${process.pid} lanzando ${numCPUs} Workers...`);
 
-  let jugadores = {}; 
-  let salas = {};     
-  let reiniciosPendientes = {};
+  let jugadores = {}; // Almacena el nombre del jugador y el ID del worker asociado
+  let salas = {};     // Almacena las salas activas y su información (jugadores y tablero)
+  let reiniciosPendientes = {}; // Almacena los jugadores que solicitaron reinicio por sala
 
+  // Envia a todos los workers la lista actualizada de jugadores y salas
   function broadcastActualizacion() {
     const listaJugadores = Object.keys(jugadores);
     const listaSalas = Object.keys(salas).map(nombreSala => ({
@@ -24,15 +25,18 @@ if (cluster.isMaster) {
     }
   }
 
+  // Crea un worker por cada CPU
   for (let i = 0; i < numCPUs; i++) {
     const worker = cluster.fork();
     workers[worker.id] = worker;
   }
 
+  // Escucha mensajes de los workers
   for (const id in workers) {
     workers[id].on("message", (message) => {
       const { type, data, idMensaje } = message;
 
+      // Registro de nuevo jugador
       if (type === "registro") {
         if (jugadores[data.nombre]) {
           workers[id].send({ idMensaje, type: "error", mensaje: "Nombre ya en uso" });
@@ -43,6 +47,7 @@ if (cluster.isMaster) {
         }
       }
 
+      // Crear nueva sala
       if (type === "crearSala") {
         if (salas[data.nombre]) {
           workers[id].send({ idMensaje, type: "error", mensaje: "La sala ya existe" });
@@ -53,6 +58,7 @@ if (cluster.isMaster) {
         }
       }
 
+      // Unirse a una sala existente
       if (type === "unirseSala") {
         if (salas[data.nombreSala] && salas[data.nombreSala].jugadores.length === 1) {
           salas[data.nombreSala].jugadores.push(data.jugador);
@@ -77,14 +83,13 @@ if (cluster.isMaster) {
         }
       }
 
+      // Recibe una jugada y la propaga a los jugadores de la sala
       if (type === "jugada") {
         const { sala, casilla, jugador } = data;
         if (salas[sala]) {
           salas[sala].tablero[casilla] = jugador;
           const tableroActual = salas[sala].tablero;
-          const siguienteTurno = jugador === "X" ? "O" : "X"; // <--- Cambio agregado aquí
-          console.log("✅ Tablero actualizado:", tableroActual); // ← Agrega esto para debug
-
+          const siguienteTurno = jugador === "X" ? "O" : "X";
 
           salas[sala].jugadores.forEach(nombre => {
             const idWorker = jugadores[nombre];
@@ -94,13 +99,14 @@ if (cluster.isMaster) {
                 casilla,
                 jugador,
                 tablero: tableroActual,
-                turno: siguienteTurno // <--- Cambio agregado aquí
+                turno: siguienteTurno
               });
             }
           });
         }
       }
 
+      // Solicitud de reinicio de partida
       if (type === "reiniciar") {
         const { sala, nombre } = data;
         if (!reiniciosPendientes[sala]) reiniciosPendientes[sala] = new Set();
@@ -123,12 +129,13 @@ if (cluster.isMaster) {
         }
       }
 
+      // Salir de la sala
       if (type === "salirSala") {
         const { sala, nombre } = data;
         if (salas[sala]) {
           const rival = salas[sala].jugadores.find(n => n !== nombre);
           if (rival && workers[jugadores[rival]]) {
-            workers[jugadores[rival]].send({ type: "salaCerrada" });
+            workers[jugadores[rival]].send({ type: "salaCerrada", tuNombre: rival });
           }
           delete salas[sala];
           delete reiniciosPendientes[sala];
@@ -136,6 +143,7 @@ if (cluster.isMaster) {
         broadcastActualizacion();
       }
 
+      // Desconexión de un jugador
       if (type === "desconectar") {
         const { nombre } = data;
         if (jugadores[nombre]) delete jugadores[nombre];
@@ -152,6 +160,7 @@ if (cluster.isMaster) {
     });
   }
 
+  // Reinicia un worker si muere
   cluster.on("exit", (worker) => {
     console.log(`⚠️ Worker ${worker.process.pid} murió. Reiniciando...`);
     const newWorker = cluster.fork();
@@ -159,9 +168,9 @@ if (cluster.isMaster) {
   });
 
 } else {
-  const wss = new WebSocket.Server({ port: 3000 + cluster.worker.id });
-  const clientes = new Set();
-  const pendingRequests = {};
+  const wss = new WebSocket.Server({ port: 3000 + cluster.worker.id }); // Cada worker escucha en un puerto diferente
+  const clientes = new Set(); // Set de clientes conectados a este worker
+  const pendingRequests = {}; // Almacena las peticiones pendientes para enviar la respuesta adecuada
 
   console.log(`✅ Worker PID ${process.pid} escuchando en ws://localhost:${3000 + cluster.worker.id}`);
 
@@ -170,16 +179,17 @@ if (cluster.isMaster) {
 
     ws.on("message", (msg) => {
       const data = JSON.parse(msg);
-      const idMensaje = Math.random().toString(36).substr(2, 9);
+      const idMensaje = Math.random().toString(36).substr(2, 9); // ID aleatorio para rastrear respuesta
 
       pendingRequests[idMensaje] = ws;
 
+      // Enviar al proceso master
       if (data.type === "registro") {
         ws.nombre = data.nombre;
         process.send({ type: "registro", idMensaje, data: { nombre: data.nombre } });
       }
       if (data.type === "crearSala") {
-        ws.sala = data.nombre; 
+        ws.sala = data.nombre;
         process.send({ type: "crearSala", idMensaje, data: { nombre: data.nombre, jugador: ws.nombre } });
       }
       if (data.type === "unirseSala") {
@@ -205,6 +215,7 @@ if (cluster.isMaster) {
     });
   });
 
+  // Mensajes entrantes desde el proceso master
   process.on("message", (message) => {
     if (message.type === "broadcastListas") {
       const dataJugadores = JSON.stringify({ type: "listaJugadores", jugadores: message.jugadores });
@@ -221,20 +232,18 @@ if (cluster.isMaster) {
         ws.send(JSON.stringify(message));
       }
       delete pendingRequests[message.idMensaje];
+    } else if (message.tuNombre) {
+      clientes.forEach((ws) => {
+        if (ws.readyState === WebSocket.OPEN && ws.nombre === message.tuNombre) {
+          ws.send(JSON.stringify(message));
+        }
+      });
     } else {
-  if (message.type === "inicioPartida") {
-    clientes.forEach((ws) => {
-      if (ws.readyState === WebSocket.OPEN && ws.nombre === message.tuNombre) {
-        ws.send(JSON.stringify(message));
-      }
-    });
-  } else {
-    clientes.forEach((ws) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(message));
-      }
-    });
-  }
-}
+      clientes.forEach((ws) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(message));
+        }
+      });
+    }
   });
 }
